@@ -1,5 +1,14 @@
 # Projet CNAM Socket
 
+## Lancement
+
+Commande de compilation :
+gcc -Wall -o cavalier_GUI cavalier_GUI.c $(pkg-config --cflags --libs gtk+-3.0)
+
+Lancement projet avec <num_port> le port TCP d'écoute :
+./cavalier_GUI <num_port>
+
+
 ## Objectif
 
 Réalisation d’un jeu de chasse au cavalier à 2 joueurs en utilisant l’API Socket en langage C pour faire communiquer le programme de deux joueurs exécutés localement sur la même machine.
