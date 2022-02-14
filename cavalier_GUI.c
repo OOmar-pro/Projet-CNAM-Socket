@@ -30,12 +30,15 @@ struct coup
 
 /* Variables globales */
   int damier[8][8];	// tableau associe au damier , couleurs possibles 0 : pour noir, 1 : pour blanc, 3 : pour pion
-  int couleur;		// 0 : pour noir, 1 : pour blanc
+  int couleur = 0;		// 0 : pour noir, 1 : pour blanc
+
+  int case_jouable[8][8]; // tableau de meme taille que le damier montrant les cases jouables par le joueur, 0 : non jouable, 1 : jouable 
   
   int port;		// numero port passé lors de l'appel
 
   char *addr_j2, *port_j2;	// Info sur adversaire
 
+  struct coup localisation; // emplacement du joueur
 
   pthread_t thr_id;	// Id du thread fils gerant connexion socket
   
@@ -52,8 +55,9 @@ struct coup
   GError      *  p_err       = NULL;
    
 
-
-// Entetes des fonctions  
+/************************************/
+/***** ENTETE FONCTIONS DE BASE *****/
+/************************************/
 
 /* Fonction permettant afficher image pion dans case du damier (indiqué par sa colonne et sa ligne) */
 void affiche_pion(int col, int lig);
@@ -116,6 +120,40 @@ void reset_liste_joueurs(void);
 void affich_joueur(char *login, char *adresse, char *port);
 
 
+
+/*************************************/
+/***** ENTETE FONCTIONS AJOUTEES *****/
+/*************************************/
+
+/* Fonction permettant de voir les cases où le joueur qui joue peut se déplacer sur le damier */
+void view_case_jouable(int col, int lig);
+
+/* Fonction permettant afficher image case jouable dans case du damier (indiqué par sa colonne et sa ligne) */
+void affiche_case_jouable(int col, int lig);
+
+/* Fonction permettant de supprimer les anciens cases jouable par le joueur sur le damier */
+void remove_old_case_jouable();
+
+/* Fonction permettant de vérifier si un joueur peut se déplacer */
+void verifie_joueur_bloque(int couleur);
+
+/* Fonction permettant afficher image case vide dans case du damier (indiqué par sa colonne et sa ligne) */
+void affiche_case_vide(int col, int lig);
+
+/* Fonction permettant de vérifier si c'est le cavalier blanc qui a gagné */
+void verifie_cav_blanc_gagne();
+
+/* Fonction permettant de vérifier si c'est le cavalier noir qui a gagné */
+void verifie_cav_noir_gagne();
+
+/* Fonction permettant de vérifier si il y a égalité */
+void verifie_egalite();
+
+
+
+/*****************************/
+/***** FONCTIONS DE BASE *****/
+/*****************************/
 
 /* Fonction transforme coordonnees du damier graphique en indexes pour matrice du damier */
 void coord_to_indexes(const gchar *coord, int *col, int *lig)
@@ -237,7 +275,6 @@ void affiche_cav_blanc(int col, int lig)
     gtk_image_set_from_file(GTK_IMAGE(gtk_builder_get_object(p_builder, coord)), "UI_Glade/case_cav_blanc.png");
 }
 
-
 /* Fonction appelee lors du clique sur une case du damier */
 static void coup_joueur(GtkWidget *p_case)
 {
@@ -249,23 +286,35 @@ static void coup_joueur(GtkWidget *p_case)
   
 
   /***** TO DO *****/
-  
-  if (couleur == 1) {
 
-    // Afficher cavalier blanc dans la case cliquée
-    affiche_cav_blanc(col, lig)
+  if (case_jouable[col][lig] == 1) {
 
-    // Changement de joueur
-    couleur = 0
+    // Supprimer les indications des case qui pouvait être joué
+    remove_old_case_jouable();
+
+    if (couleur == 1) {
+      // Afficher cavalier blanc dans la case cliquée
+      affiche_cav_blanc(col, lig);
+      damier[col][lig] = 1;
+    }
+    else {
+      // Afficher cavalier noir dans la case cliquée
+      affiche_cav_noir(col, lig);
+      damier[col][lig] = 0;
+    }  
+
+    // Afficher pion à l'ancien emplacement du joueur
+    affiche_pion(localisation.col, localisation.lig);
+    damier[localisation.col][localisation.lig] = 3;
+
+    // Changer la localisation actuelle du joueur
+    localisation.col=col;
+    localisation.lig=lig;
+
+    view_case_jouable(localisation.col, localisation.lig);
   }
-  else {
-
-    // Afficher cavalier noir dans la case cliquée
-    affiche_cav_noir(col, lig)
-
-    // Changement de joueur
-    couleur = 1
-  }  
+  
+  
 }
 
 /* Fonction retournant texte du champs adresse du serveur de l'interface graphique */
@@ -527,13 +576,20 @@ void init_interface_jeu(void)
 {
   // Initilisation du damier (A1=cavalier_noir, H8=cavalier_blanc)
   affiche_cav_blanc(7,7);
+  damier[7][7]=1;
   affiche_cav_noir(0,0);
-    
+  damier[0][0]=0;  
+
   // Initialisation du plateau de chaque joueur
   if (couleur == 0) {
+      localisation.col=0;
+      localisation.lig=0;
       degele_damier();
+      view_case_jouable(localisation.col, localisation.lig);
   }
   else {
+      localisation.col=7;
+      localisation.lig=7;
       gele_damier();
   }  
 }
@@ -573,30 +629,30 @@ static void * f_com_socket(void *p_arg)
   struct coup coup;
 
   /* Association descripteur au signal SIGUSR1 */
-  sigemptyset(&signal_mask);
-  sigaddset(&signal_mask, SIGUSR1);
+  // sigemptyset(&signal_mask);
+  // sigaddset(&signal_mask, SIGUSR1);
 
-  if (sigprocmask(SIG_BLOCK, &signal_mask, NULL) == -1)
-  {
-      printf("[Port joueur %d] Erreur sigprocmask\n", port);
-      return 0;
-  }
+  // if (sigprocmask(SIG_BLOCK, &signal_mask, NULL) == -1)
+  // {
+  //     printf("[Port joueur %d] Erreur sigprocmask\n", port);
+  //     return 0;
+  // }
 
-  fd_signal = signalfd(-1, &signal_mask, 0);
+  // fd_signal = signalfd(-1, &signal_mask, 0);
 
-  if (fd_signal == -1)
-  {
-      printf("[Port joueur %d] Erreur signalfd\n", port);
-      return 0;
-  }
+  // if (fd_signal == -1)
+  // {
+  //     printf("[Port joueur %d] Erreur signalfd\n", port);
+  //     return 0;
+  // }
 
-  /* Ajout descripteur du signal dans ensemble de descripteur utilisé avec fonction select */
-  FD_SET(fd_signal, &master);
+  // /* Ajout descripteur du signal dans ensemble de descripteur utilisé avec fonction select */
+  // FD_SET(fd_signal, &master);
 
-  if (fd_signal > fdmax)
-  {
-      fdmax = fd_signal;
-  }
+  // if (fd_signal > fdmax)
+  // {
+  //     fdmax = fd_signal;
+  // }
   
   
   while(1)
@@ -607,7 +663,7 @@ static void * f_com_socket(void *p_arg)
     {
       perror("Problème avec select");
       
-      reinitialiser_interface(); // a creer
+      // reinitialiser_interface(); // a creer
       gtk_widget_set_sensitive((GtkWidget *)gtk_builder_get_object(p_builder, "button_start"), TRUE);
       
       exit(4);
@@ -620,22 +676,22 @@ static void * f_com_socket(void *p_arg)
 
       if(FD_ISSET(i, &read_fds))
       {
-        if (i == fd_signal)
-        {
-          /* Cas où on se connecte au joueur adverse */
-          printf("Connexion avec l'adversaire\n");
+        // if (i == fd_signal)
+        // {
+        //   /* Cas où on se connecte au joueur adverse */
+        //   printf("Connexion avec l'adversaire\n");
 
-          if (newsockfd == -1)
-          {
-            init_connect_socket(&newsockfd);
+        //   if (newsockfd == -1)
+        //   {
+        //     init_connect_socket(&newsockfd);
 
-            set_and_clear_fds(fd_signal); // a faire
+        //     // set_and_clear_fds(fd_signal); // a faire
 
-            set_couleur_joueur(NOIR); // a faire
-            set_couleur_adversaire(BLANC); // a faire
-            init_interface_jeu(); // a completer
-          }
-        }
+        //     // set_couleur_joueur(NOIR); // a faire
+        //     // set_couleur_adversaire(BLANC); // a faire
+        //     // init_interface_jeu(); // a completer
+        //   }
+        // }
 
 
         if(i==sockfd)
@@ -651,11 +707,11 @@ static void * f_com_socket(void *p_arg)
                   return NULL;
               }
 
-              set_and_clear_fds(fd_signal); // a faire
+              // set_and_clear_fds(fd_signal); // a faire
 
-              set_couleur_joueur(BLANC); // a faire
-              set_couleur_adversaire(NOIR); // a faire
-              init_interface_jeu(); // a faire
+              // set_couleur_joueur(BLANC); // a faire
+              // set_couleur_adversaire(NOIR); // a faire
+              // init_interface_jeu(); // a faire
           }
 
           gtk_widget_set_sensitive((GtkWidget *)gtk_builder_get_object(p_builder, "button_start"), FALSE);
@@ -665,23 +721,23 @@ static void * f_com_socket(void *p_arg)
         { // Reception et traitement des messages du joueur adverse
       
       
-          if (i == newsockfd)
-          {
-            // clear buffer
-            bzero(buf, MAXDATASIZE);
-            nbytes = recv(newsockfd, buf, MAXDATASIZE, 0);
+          // if (i == newsockfd)
+          // {
+          //   // clear buffer
+          //   bzero(buf, MAXDATASIZE);
+          //   nbytes = recv(newsockfd, buf, MAXDATASIZE, 0);
 
-            col = atoi(strtok_r(buf, " ", &saveptr));
-            lig = atoi(strtok_r(NULL, " ", &saveptr));
+          //   col = atoi(strtok_r(buf, " ", &saveptr));
+          //   lig = atoi(strtok_r(NULL, " ", &saveptr));
 
-            sscanf(col, "%hu", (unsigned short int *)&(coup.colonne));
-            sscanf(lig, "%hu", (unsigned short int *)&(coup.ligne));
+          //   sscanf(col, "%hu", (unsigned short int *)&(coup.col));
+          //   sscanf(lig, "%hu", (unsigned short int *)&(coup.lig));
 
-            coup.colonne = ntohs(coup.colonne);
-            coup.ligne = ntohs(coup.ligne);
+          //   coup.col = ntohs(coup.col);
+          //   coup.lig = ntohs(coup.lig);
 
-            coup_adversaire(coup.colonne, coup.ligne); // a faire
-          }
+          //   // coup_joueur(coup.colonne, coup.ligne); // a faire
+          // }
         }
       }
     }
@@ -691,13 +747,169 @@ static void * f_com_socket(void *p_arg)
 }
 
 
+
+/******************************/
+/***** FONCTIONS AJOUTEES *****/
+/******************************/
+
+/* Fonction permettant de voir les cases où le joueur qui joue peut se déplacer sur le damier */
+void view_case_jouable(int col, int lig) {
+  int i,j;
+
+  /* Initialisation des joueurs par le joueur */
+  for(i=0; i<8; i++)
+  {
+    for(j=0; j<8; j++)
+    {
+      case_jouable[i][j]=0; 
+    }  
+  }
+
+  // Vérifier déplacement par le haut
+  if (lig >= 2) {
+    // Vérifier déplacement en haut à droite
+    if (col <= 6 ) {
+      if (damier[col+1][lig-2] == -1) {
+        affiche_case_jouable(col+1, lig-2);
+        case_jouable[col+1][lig-2]=1;
+      }
+    }
+
+    // Vérifier déplacement en haut à gauche
+    if (col >= 1) {
+      if (damier[col-1][lig-2] == -1) {
+        affiche_case_jouable(col-1, lig-2);
+        case_jouable[col-1][lig-2]=1;
+      }
+    }
+  }
+  
+  // Vérifier déplacement par le bas
+  if (lig <= 5) {
+    // Vérifier déplacement en bas à droite
+    if (col <= 6) {
+      if (damier[col+1][lig+2] == -1) {
+        affiche_case_jouable(col+1, lig+2);
+        case_jouable[col+1][lig+2]=1;
+      }
+    }
+
+    // Vérifier déplacement en bas à gauche
+    if (col >= 1) {
+      if (damier[col-1][lig+2] == -1) {
+        affiche_case_jouable(col-1, lig+2);
+        case_jouable[col-1][lig+2]=1;
+      }
+    }
+  }
+  
+  // Vérifier déplacement par la gauche
+  if (col >= 2) {
+    // Vérifier déplacement à gauche en haut
+    if (lig >= 1 ) {
+      if (damier[col-2][lig-1] == -1) {
+        affiche_case_jouable(col-2, lig-1);
+        case_jouable[col-2][lig-1]=1;
+      }
+    }
+
+    // Vérifier déplacement à gauche en bas
+    if (lig <= 6) {
+      if (damier[col-2][lig+1] == -1) {
+        affiche_case_jouable(col-2, lig+1);
+        case_jouable[col-2][lig+1]=1;
+      }
+    }
+  }
+
+  // Vérifier déplacement par la droite
+  if (col <= 5) {
+    // Vérifier déplacement à droite en haut
+    if (lig >= 1 ) {
+      if (damier[col+2][lig-1] == -1) {
+        affiche_case_jouable(col+2, lig-1);
+        case_jouable[col+2][lig-1]=1;
+      }
+    }
+
+    // Vérifier déplacement à droite en bas
+    if (lig <= 6) {
+      if (damier[col+2][lig+1] == -1) {
+        affiche_case_jouable(col+2, lig+1);
+        case_jouable[col+2][lig+1]=1;
+      }
+    }
+  }
+
+}
+
+/* Fonction permettant afficher image case jouable dans case du damier (indiqué par sa colonne et sa ligne) */
+void affiche_case_jouable(int col, int lig)
+{
+    char * coord;
+    
+    coord=malloc(3*sizeof(char));
+    indexes_to_coord(col, lig, coord);
+    
+    gtk_image_set_from_file(GTK_IMAGE(gtk_builder_get_object(p_builder, coord)), "UI_Glade/case_jouable.png");
+}
+
+/* Fonction permettant de supprimer les anciens cases jouable par le joueur sur le damier */
+void remove_old_case_jouable() {
+  int i,j;
+
+  for(i=0; i<8; i++)
+  {
+    for(j=0; j<8; j++)
+    {
+      if (case_jouable[i][j] == 1) {
+        affiche_case_vide(i,j);
+      }
+    }  
+  }
+
+}
+
+/* Fonction permettant afficher image case vide dans case du damier (indiqué par sa colonne et sa ligne) */
+void affiche_case_vide(int col, int lig)
+{
+    char * coord;
+    
+    coord=malloc(3*sizeof(char));
+    indexes_to_coord(col, lig, coord);
+    
+    gtk_image_set_from_file(GTK_IMAGE(gtk_builder_get_object(p_builder, coord)), "UI_Glade/case_def.png");
+}
+
+/* Fonction permettant de vérifier si c'est le cavalier blanc qui a gagné */
+void verifie_cav_blanc_gagne() {
+
+}
+
+/* Fonction permettant de vérifier si c'est le cavalier noir qui a gagné */
+void verifie_cav_noir_gagne() {
+
+}
+
+/* Fonction permettant de vérifier si il y a égalité */
+void verifie_egalite() {
+
+}
+
+
+/****************/
+/***** MAIN *****/
+/****************/
+
 int main (int argc, char ** argv)
 {
    int i, j, ret;
 
+   int thread;
+
    if(argc!=2)
    {
-     printf("\nPrototype : ./othello num_port\n\n");
+     printf("\nPrototype : ./cavalier_GUI num_port\n\n");
      
      exit(1);
    }
@@ -807,9 +1019,11 @@ int main (int argc, char ** argv)
            }  
          }
 
+        // Initialisation de l'interface de jeu
+        init_interface_jeu();
         
         // Initialisation socket et autres objets, et création thread pour communications avec joueur adverse
-        init_bind_socket(&sockfd, argv[1]);
+        //init_bind_socket(&sockfd, argv[1]);
 
         // Attend une connexion sur la socket définit dans la variable sockfd
         listen(sockfd, 1);
