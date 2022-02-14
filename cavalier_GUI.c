@@ -24,13 +24,14 @@
 
 struct coup
 {
-    uint16_t col;
-    uint16_t lig;
+    uint16_t colonne;
+    uint16_t ligne;
 };
 
 /* Variables globales */
   int damier[8][8];	// tableau associe au damier , couleurs possibles 0 : pour noir, 1 : pour blanc, 3 : pour pion
-  int couleur = 0;		// 0 : pour noir, 1 : pour blanc
+  int couleur_j = 0;		// 0 : pour noir, 1 : pour blanc
+  int couleur_a = 0;		// 0 : pour noir, 1 : pour blanc
   
   int port;		// numero port passé lors de l'appel
 
@@ -118,6 +119,9 @@ void reset_liste_joueurs(void);
 
 /* Fonction permettant d'ajouter un joueur dans la liste des joueurs sur l'interface graphique */
 void affich_joueur(char *login, char *adresse, char *port);
+
+/* Fonction permettant d'effectuer des opérations récurentes sur les descripteurs */
+void set_and_clear_fds(int fd_signal);
 
 /* Fonction permettant d'initialiser une socket et de la bind */
 void init_bind_socket(int *fd_sock, const char *port);
@@ -304,14 +308,14 @@ static void coup_joueur(GtkWidget *p_case)
   // Vérifier le status de la partie (gagné, perdu, égalité)
   verifie_egalite();
 
-  if (couleur == 0) {
+  if (couleur_j == 0) {
     verifie_cav_noir_gagne();
   }
   else {
     verifie_cav_blanc_gagne();
   }
 
-  int** case_j = get_case_jouable(localisation.col, localisation.lig);
+  int** case_j = get_case_jouable(localisation.colonne, localisation.ligne);
 
   // Vérifie que la case cliquée correspond à une case jouable
   if (case_j[col][lig] == 1) {
@@ -319,7 +323,7 @@ static void coup_joueur(GtkWidget *p_case)
     // Supprimer les indications des case qui pouvait être joué
     remove_old_case_jouable(case_j);
 
-    if (couleur == 0) {
+    if (couleur_j == BLANC) {
       // Afficher cavalier blanc dans la case cliquée
       affiche_cav_blanc(col, lig);
       damier[col][lig] = 1;
@@ -327,35 +331,44 @@ static void coup_joueur(GtkWidget *p_case)
     else {
       // Afficher cavalier noir dans la case cliquée
       affiche_cav_noir(col, lig);
-      damier[col][lig] = 0;
+      damier[col][lig] = NOIR;
     }
 
     // Afficher pion à l'ancien emplacement du joueur
-    affiche_pion(localisation.col, localisation.lig);
-    damier[localisation.col][localisation.lig] = 3;
+    affiche_pion(localisation.colonne, localisation.ligne);
+    damier[localisation.colonne][localisation.ligne] = 3;
 
     // Gele le damier
-    // gele_damier();
+    gele_damier();
 
     // Envoyer à l'adversaire les anciennes et les nouvelles coordonnées du joueur actuel
-    // bzero(buf, MAXDATASIZE);
-    // snprintf(buf, MAXDATASIZE, "old:%u-%u new:%u-%u", htons((uint16_t)localisation.col), htons((uint16_t)localisation.lig), htons((uint16_t)col), htons((uint16_t)lig));
+    bzero(buf, MAXDATASIZE);
+    snprintf(buf, MAXDATASIZE, "%u %u %u %u", htons((uint16_t)localisation.colonne), htons((uint16_t)localisation.ligne), htons((uint16_t)col), htons((uint16_t)lig));
 
-    // if (send(newsockfd, &buf, strlen(buf), 0) == -1)
-    // {
-    //     perror("ERREUR: Envoi des données");
-    //     close(newsockfd);
-    // }
+    if (send(newsockfd, &buf, strlen(buf), 0) == -1)
+    {
+        perror("ERREUR: Envoi des données");
+        close(newsockfd);
+    }
 
     // Changer la localisation actuelle du joueur
-    localisation.col=col;
-    localisation.lig=lig;
+    localisation.colonne=col;
+    localisation.ligne=lig;
 
     // Afficher les cases jouables par le joueur
-    add_case_jouable(get_case_jouable(localisation.col, localisation.lig));
+    add_case_jouable(get_case_jouable(localisation.colonne, localisation.ligne));
 
   }
   
+}
+
+static void coup_adversaire(int col, int lig)
+{
+    affiche_cav_noir(col, lig);
+    printf("\ncol=%d  lig=%d\n");
+
+    // update_score();
+    degele_damier();
 }
 
 /* Fonction retournant texte du champs adresse du serveur de l'interface graphique */
@@ -615,15 +628,15 @@ void init_interface_jeu(void)
   damier[0][0]=0;  
 
   // Initialisation du plateau de chaque joueur
-  if (couleur == 0) {
-      localisation.col=0;
-      localisation.lig=0;
+  if (couleur_j == 0) {
+      localisation.colonne=0;
+      localisation.ligne=0;
       degele_damier();
-      add_case_jouable(get_case_jouable(localisation.col, localisation.lig));
+      add_case_jouable(get_case_jouable(localisation.colonne, localisation.ligne));
   }
   else {
-      localisation.col=7;
-      localisation.lig=7;
+      localisation.colonne=7;
+      localisation.ligne=7;
       gele_damier();
   }  
 }
@@ -647,6 +660,19 @@ void affich_joueur(char *login, char *adresse, char *port)
   joueur=g_strconcat(login, " - ", adresse, " : ", port, "\n", NULL);
   
   gtk_text_buffer_insert_at_cursor(GTK_TEXT_BUFFER(gtk_text_view_get_buffer(GTK_TEXT_VIEW(gtk_builder_get_object(p_builder, "textview_joueurs")))), joueur, strlen(joueur));
+}
+
+/* Fonction permettant d'effectuer des opérations récurentes sur les descripteurs */
+void set_and_clear_fds(int fd_signal)
+{
+    FD_SET(newsockfd, &master);
+    fdmax = newsockfd > fdmax ? newsockfd : fdmax;
+
+    FD_CLR(sockfd, &master);
+    close(sockfd);
+
+    FD_CLR(fd_signal, &master);
+    close(fd_signal);
 }
 
 /* Fonction permettant d'initialiser une socket et de la bind */
@@ -743,11 +769,11 @@ void init_connect_socket(int *fd_sock)
 /* Fonction exécutée par le thread gérant les communications à travers la socket */
 static void * f_com_socket(void *p_arg)
 {
-  int i, nbytes, col, lig;
+  int i, nbytes, old_col, old_lig, new_col, new_lig;
 
   sigset_t signal_mask;
   
-  char buf[MAXDATASIZE], *tmp, *p_parse;
+  char buf[MAXDATASIZE], *tmp, *p_parse, *saveptr;
   int len, bytes_sent, t_msg_recu;
 
   int fd_signal;
@@ -755,7 +781,9 @@ static void * f_com_socket(void *p_arg)
   uint16_t type_msg, col_j2;
   uint16_t ucol, ulig;
 
-  struct coup coup;
+  struct coup mouvement_joueur;
+
+  saveptr = malloc(sizeof(char));
 
   /* Association descripteur au signal SIGUSR1 */
   sigemptyset(&signal_mask);
@@ -814,11 +842,11 @@ static void * f_com_socket(void *p_arg)
             printf("test 1");
             init_connect_socket(&newsockfd);
 
-            // set_and_clear_fds(fd_signal); // a faire
+            set_and_clear_fds(fd_signal);
 
-            // set_couleur_joueur(NOIR); // a faire
-            // set_couleur_adversaire(BLANC); // a faire
-            // init_interface_jeu(); // a completer
+            couleur_j = NOIR;
+            couleur_a = BLANC;
+            init_interface_jeu();
           }
         }
 
@@ -834,8 +862,8 @@ static void * f_com_socket(void *p_arg)
                   perror("Connexion refusée");
                   return NULL;
               }
-              // set_and_clear_fds(fd_signal); // a faire
-              // init_interface_jeu(); // a faire
+              set_and_clear_fds(fd_signal); // a faire
+              init_interface_jeu();
           }
 
           gtk_widget_set_sensitive((GtkWidget *)gtk_builder_get_object(p_builder, "button_start"), FALSE);
@@ -844,23 +872,28 @@ static void * f_com_socket(void *p_arg)
         else
         { // Reception et traitement des messages du joueur adverse
       
-          printf("test 3");
+          printf("\ntest zebiiiiii => %d \n", i);
           if (i == newsockfd)
           {
             // clear buffer
             bzero(buf, MAXDATASIZE);
             nbytes = recv(newsockfd, buf, MAXDATASIZE, 0);
 
-            col = atoi(strtok_r(buf, " ", &saveptr));
-            lig = atoi(strtok_r(NULL, " ", &saveptr));
+            printf("\n%s\n", buf);
 
-            sscanf(col, "%hu", (unsigned short int *)&(coup.col));
-            sscanf(lig, "%hu", (unsigned short int *)&(coup.lig));
+            old_col = atoi(strtok_r(buf, " ", &saveptr));
+            old_lig = atoi(strtok_r(NULL, " ", &saveptr));
 
-            coup.col = ntohs(coup.col);
-            coup.lig = ntohs(coup.lig);
+            new_col = atoi(strtok_r(buf, " ", &saveptr));
+            new_lig = atoi(strtok_r(NULL, " ", &saveptr));
 
-            coup_joueur(coup.colonne, coup.ligne); // a faire
+            sscanf(new_col, "%hu", (unsigned short int *)&(mouvement_joueur.colonne));
+            sscanf(new_lig, "%hu", (unsigned short int *)&(mouvement_joueur.ligne));
+
+            mouvement_joueur.colonne = ntohs(mouvement_joueur.colonne);
+            mouvement_joueur.ligne = ntohs(mouvement_joueur.ligne);
+
+            coup_adversaire(mouvement_joueur.colonne, mouvement_joueur.ligne); // a faire
           }
         }
       }
@@ -1019,8 +1052,8 @@ struct coup get_coord_joueur(int couleur) {
     for(j=0; j<8; j++)
     {
       if (damier[i][j] == couleur) {
-        coord.col=i;
-        coord.lig=j;
+        coord.colonne=i;
+        coord.ligne=j;
       }
     }  
   }
@@ -1033,7 +1066,7 @@ int verifie_joueur_bloque(int couleur) {
   int i, j;
   int bloque=1;
 
-  int ** coup_jouable = get_case_jouable(get_coord_joueur(couleur).col, get_coord_joueur(couleur).lig);
+  int ** coup_jouable = get_case_jouable(get_coord_joueur(couleur).colonne, get_coord_joueur(couleur).ligne);
   for(i=0; i<8; i++)
   {
     for(j=0; j<8; j++)
@@ -1060,10 +1093,10 @@ void affiche_case_vide(int col, int lig) {
 /* Fonction permettant de vérifier si c'est le cavalier blanc qui a gagné */
 void verifie_cav_blanc_gagne() {
   // Vérifie si le cavalier blanc peut prendre la place du cavalier noir 
-  struct coup blanc = get_coord_joueur(1);
+  struct coup blanc = get_coord_joueur(BLANC);
 
-  int col = blanc.col;
-  int lig = blanc.lig;
+  int col = blanc.colonne;
+  int lig = blanc.ligne;
 
   // Vérifier déplacement par le haut
   if (lig >= 2) {
@@ -1134,7 +1167,7 @@ void verifie_cav_blanc_gagne() {
   }
 
   // Vérifier si cavalier noir bloqué
-  if (verifie_joueur_bloque(0)) {
+  if (verifie_joueur_bloque(NOIR)) {
     affiche_fenetre_gagne();
   }
 }
@@ -1145,7 +1178,7 @@ void verifie_cav_noir_gagne() {
 
 
   // Vérifier si le cavalier blanc bloqué
-  if (verifie_joueur_bloque(1)) {
+  if (verifie_joueur_bloque(BLANC)) {
     affiche_fenetre_gagne();
   }
 }
@@ -1153,7 +1186,7 @@ void verifie_cav_noir_gagne() {
 /* Fonction permettant de vérifier si il y a égalité */
 void verifie_egalite() {
   // Vérifier si le cavalier noir et le cavalier blanc sont bloqués
-  if (verifie_joueur_bloque(0) && verifie_joueur_bloque(1)) {
+  if (verifie_joueur_bloque(NOIR) && verifie_joueur_bloque(BLANC)) {
     affiche_fenetre_egalite();
   }
 
