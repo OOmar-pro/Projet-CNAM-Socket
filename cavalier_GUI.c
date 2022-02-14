@@ -49,6 +49,8 @@ struct coup
   fd_set master, read_fds, write_fds;	// ensembles de socket pour toutes les sockets actives avec select
   int fdmax;			// utilise pour select
 
+  struct addrinfo hints, *servinfo, *p;
+
 
 /* Variables globales associées à l'interface graphique */
   GtkBuilder  *  p_builder   = NULL;
@@ -118,6 +120,12 @@ void reset_liste_joueurs(void);
 
 /* Fonction permettant d'ajouter un joueur dans la liste des joueurs sur l'interface graphique */
 void affich_joueur(char *login, char *adresse, char *port);
+
+/* Fonction permettant d'initialiser une socket et de la bind */
+void init_bind_socket(int *fd_sock, const char *port);
+
+/* Fonction permettant d'initialiser une socket et de tenter une connexion dessus */
+void init_connect_socket(int *fd_sock);
 
 
 
@@ -421,14 +429,7 @@ static void clique_connect_adversaire(GtkWidget *b)
     printf("[Port joueur : %d] Adresse j2 lue : %s\n",port, addr_j2);
     printf("[Port joueur : %d] Port j2 lu : %s\n", port, port_j2);
 
-    
-    //pthread_kill(thr_id, SIGUSR1); 
-    
-    /***** TO DO *****/
-    /* Connexion au joueur adverse */
-    
-
-    
+    pthread_kill(thr_id, SIGUSR1);
     
   }
 }
@@ -615,13 +616,108 @@ void affich_joueur(char *login, char *adresse, char *port)
   gtk_text_buffer_insert_at_cursor(GTK_TEXT_BUFFER(gtk_text_view_get_buffer(GTK_TEXT_VIEW(gtk_builder_get_object(p_builder, "textview_joueurs")))), joueur, strlen(joueur));
 }
 
+/* Fonction permettant d'initialiser une socket et de la bind */
+void init_bind_socket(int *fd_sock, const char *port)
+{
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE;
+
+    int connected = 0;
+    while (connected != 1)
+    {
+        printf("Trying port [%s]\n", port);
+        int status = getaddrinfo(NULL, port, &hints, &servinfo);
+        if (status != 0)
+        {
+            fprintf(stderr, "getaddrinfo : %s\n", gai_strerror(status));
+            exit(1);
+        }
+
+        for (p = servinfo; p != NULL; p->ai_next)
+        {
+            if ((*fd_sock = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
+            {
+                perror("Error while creating socket...");
+                exit(0);
+            }
+
+            if (bind(*fd_sock, p->ai_addr, p->ai_addrlen) == -1)
+            {
+                close(*fd_sock);
+                perror("Error while binding socket...");
+                
+                int val;
+
+                val = atoi(port);
+                val++;
+                sprintf((char *restrict)port, "%d", val);
+
+                break;
+            }
+            connected = 1;
+            break;
+        }
+        if (p == NULL)
+        {
+            fprintf(stderr, "error while binding, exit\n");
+            exit(1);
+        }
+        freeaddrinfo(servinfo);
+    }
+}
+
+/* Fonction permettant d'initialiser une socket et de tenter une connexion dessus */
+void init_connect_socket(int *fd_sock)
+{
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE;
+
+    int status = getaddrinfo(addr_j2, port_j2, &hints, &servinfo);
+    if (status != 0)
+    {
+        fprintf(stderr, "getaddrinfo : %s\n", gai_strerror(status));
+    }
+
+    for (p = servinfo; p != NULL; p->ai_next)
+    {
+        if ((*fd_sock = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
+        {
+            perror("Error while creating client socket...\n");
+            break;
+        }
+        printf("socket: %d\n", *fd_sock);
+        if (connect(*fd_sock, p->ai_addr, p->ai_addrlen) == -1)
+        {
+            close(*fd_sock);
+            perror("Error while binding client socket...");
+            break;
+        }
+        break;
+    }
+
+    if (p == NULL)
+    {
+        fprintf(stderr, "error while binding, exit\n");
+        exit(1);
+    }
+    freeaddrinfo(servinfo);
+}
+
 /* Fonction exécutée par le thread gérant les communications à travers la socket */
 static void * f_com_socket(void *p_arg)
 {
   int i, nbytes, col, lig;
+
+  sigset_t signal_mask;
   
   char buf[MAXDATASIZE], *tmp, *p_parse;
   int len, bytes_sent, t_msg_recu;
+
+  int fd_signal;
 
   uint16_t type_msg, col_j2;
   uint16_t ucol, ulig;
@@ -629,31 +725,30 @@ static void * f_com_socket(void *p_arg)
   struct coup coup;
 
   /* Association descripteur au signal SIGUSR1 */
-  // sigemptyset(&signal_mask);
-  // sigaddset(&signal_mask, SIGUSR1);
+  sigemptyset(&signal_mask);
+  sigaddset(&signal_mask, SIGUSR1);
 
-  // if (sigprocmask(SIG_BLOCK, &signal_mask, NULL) == -1)
-  // {
-  //     printf("[Port joueur %d] Erreur sigprocmask\n", port);
-  //     return 0;
-  // }
+  if (sigprocmask(SIG_BLOCK, &signal_mask, NULL) == -1)
+  {
+      printf("[Port joueur %d] Erreur sigprocmask\n", port);
+      return 0;
+  }
 
-  // fd_signal = signalfd(-1, &signal_mask, 0);
+  fd_signal = signalfd(-1, &signal_mask, 0);
 
-  // if (fd_signal == -1)
-  // {
-  //     printf("[Port joueur %d] Erreur signalfd\n", port);
-  //     return 0;
-  // }
+  if (fd_signal == -1)
+  {
+      printf("[Port joueur %d] Erreur signalfd\n", port);
+      return 0;
+  }
 
-  // /* Ajout descripteur du signal dans ensemble de descripteur utilisé avec fonction select */
-  // FD_SET(fd_signal, &master);
+  /* Ajout descripteur du signal dans ensemble de descripteur utilisé avec fonction select */
+  FD_SET(fd_signal, &master);
 
-  // if (fd_signal > fdmax)
-  // {
-  //     fdmax = fd_signal;
-  // }
-  
+  if (fd_signal > fdmax)
+  {
+      fdmax = fd_signal;
+  }
   
   while(1)
   {
@@ -676,28 +771,28 @@ static void * f_com_socket(void *p_arg)
 
       if(FD_ISSET(i, &read_fds))
       {
-        // if (i == fd_signal)
-        // {
-        //   /* Cas où on se connecte au joueur adverse */
-        //   printf("Connexion avec l'adversaire\n");
+        if (i == fd_signal)
+        {
+          /* Cas où on se connecte au joueur adverse */
+          printf("Connexion avec l'adversaire\n");
 
-        //   if (newsockfd == -1)
-        //   {
-        //     init_connect_socket(&newsockfd);
+          if (newsockfd == -1)
+          {
+            printf("test 1");
+            init_connect_socket(&newsockfd);
 
-        //     // set_and_clear_fds(fd_signal); // a faire
+            // set_and_clear_fds(fd_signal); // a faire
 
-        //     // set_couleur_joueur(NOIR); // a faire
-        //     // set_couleur_adversaire(BLANC); // a faire
-        //     // init_interface_jeu(); // a completer
-        //   }
-        // }
+            // set_couleur_joueur(NOIR); // a faire
+            // set_couleur_adversaire(BLANC); // a faire
+            // init_interface_jeu(); // a completer
+          }
+        }
 
 
         if(i==sockfd)
         { // Acceptation connexion adversaire
 	  
-	    
           if (newsockfd == -1)
           {
               addr_size = sizeof(their_addr);
@@ -706,11 +801,7 @@ static void * f_com_socket(void *p_arg)
                   perror("Connexion refusée");
                   return NULL;
               }
-
               // set_and_clear_fds(fd_signal); // a faire
-
-              // set_couleur_joueur(BLANC); // a faire
-              // set_couleur_adversaire(NOIR); // a faire
               // init_interface_jeu(); // a faire
           }
 
@@ -720,24 +811,24 @@ static void * f_com_socket(void *p_arg)
         else
         { // Reception et traitement des messages du joueur adverse
       
-      
-          // if (i == newsockfd)
-          // {
-          //   // clear buffer
-          //   bzero(buf, MAXDATASIZE);
-          //   nbytes = recv(newsockfd, buf, MAXDATASIZE, 0);
+          printf("test 3");
+          if (i == newsockfd)
+          {
+            // clear buffer
+            bzero(buf, MAXDATASIZE);
+            nbytes = recv(newsockfd, buf, MAXDATASIZE, 0);
 
-          //   col = atoi(strtok_r(buf, " ", &saveptr));
-          //   lig = atoi(strtok_r(NULL, " ", &saveptr));
+            col = atoi(strtok_r(buf, " ", &saveptr));
+            lig = atoi(strtok_r(NULL, " ", &saveptr));
 
-          //   sscanf(col, "%hu", (unsigned short int *)&(coup.col));
-          //   sscanf(lig, "%hu", (unsigned short int *)&(coup.lig));
+            sscanf(col, "%hu", (unsigned short int *)&(coup.col));
+            sscanf(lig, "%hu", (unsigned short int *)&(coup.lig));
 
-          //   coup.col = ntohs(coup.col);
-          //   coup.lig = ntohs(coup.lig);
+            coup.col = ntohs(coup.col);
+            coup.lig = ntohs(coup.lig);
 
-          //   // coup_joueur(coup.colonne, coup.ligne); // a faire
-          // }
+            coup_joueur(coup.colonne, coup.ligne); // a faire
+          }
         }
       }
     }
@@ -1023,7 +1114,7 @@ int main (int argc, char ** argv)
         init_interface_jeu();
         
         // Initialisation socket et autres objets, et création thread pour communications avec joueur adverse
-        //init_bind_socket(&sockfd, argv[1]);
+        init_bind_socket(&sockfd, argv[1]);
 
         // Attend une connexion sur la socket définit dans la variable sockfd
         listen(sockfd, 1);
