@@ -11,10 +11,8 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <inttypes.h>
-
 #include <signal.h>
 #include <sys/signalfd.h>
-
 #include <gtk/gtk.h>
 
 
@@ -22,39 +20,58 @@
 #define NOIR 0
 #define BLANC 1
 
-struct coup
-{
+struct coup {
     uint16_t colonne;
     uint16_t ligne;
 };
 
-/* Variables globales */
-  int damier[8][8];	// tableau associe au damier , couleurs possibles 0 : pour noir, 1 : pour blanc, 3 : pour pion
-  int couleur_j = 0;		// 0 : pour noir, 1 : pour blanc
-  int couleur_a = 0;		// 0 : pour noir, 1 : pour blanc
-  
-  int port;		// numero port passé lors de l'appel
 
-  char *addr_j2, *port_j2;	// Info sur adversaire
+/******************************/
+/***** VARIABLES GLOBALES *****/
+/******************************/
 
-  struct coup localisation; // emplacement du joueur
+// tableau associe au damier , couleurs possibles 0 : pour noir, 1 : pour blanc, 3 : pour pion
+int damier[8][8];
 
-  pthread_t thr_id;	// Id du thread fils gerant connexion socket
-  
-  int sockfd, newsockfd=-1; // descripteurs de socket
-  int addr_size;	 // taille adresse
-  struct sockaddr *their_addr;	// structure pour stocker adresse adversaire
+// 0 : pour noir, 1 : pour blanc
+int couleur_j = 0;
+int couleur_a = 0;
 
-  fd_set master, read_fds, write_fds;	// ensembles de socket pour toutes les sockets actives avec select
-  int fdmax;			// utilise pour select
+// emplacement du joueur
+struct coup localisation;
 
-  struct addrinfo hints, *servinfo, *p;
+// numero port passé lors de l'appel
+int port;
+// Info sur adversaire
+char *addr_j2, *port_j2;
+
+// Id du thread fils gerant connexion socket
+pthread_t thr_id;
+// descripteurs de socket
+int sockfd, newsockfd=-1;
+// taille adresse
+int addr_size;
+// structure pour stocker adresse adversaire
+struct sockaddr *their_addr;
+
+// ensembles de socket pour toutes les sockets actives avec select
+fd_set master, read_fds, write_fds;
+
+// utilise pour select
+int fdmax;
+
+struct addrinfo hints, *servinfo, *p;
 
 
-/* Variables globales associées à l'interface graphique */
-  GtkBuilder  *  p_builder   = NULL;
-  GError      *  p_err       = NULL;
-   
+
+/****************************************************************/
+/***** VARIABLES GLOBALES ASSOCIEES A L'INTERFACE GRAPHIQUE *****/
+/****************************************************************/
+
+GtkBuilder  *  p_builder   = NULL;
+GError      *  p_err       = NULL;
+
+
 
 /************************************/
 /***** ENTETE FONCTIONS DE BASE *****/
@@ -168,14 +185,17 @@ void verifie_egalite();
 /* Fonction affichant boite de dialogue si partie egalité */
 void affiche_fenetre_egalite(void);
 
+/* Fonction appelee lorsque l'on recoit le coup de l'adversaire */
+static void coup_adversaire(int col, int lig);
+
+
 
 /*****************************/
 /***** FONCTIONS DE BASE *****/
 /*****************************/
 
 /* Fonction transforme coordonnees du damier graphique en indexes pour matrice du damier */
-void coord_to_indexes(const gchar *coord, int *col, int *lig)
-{
+void coord_to_indexes(const gchar *coord, int *col, int *lig) {
   char *c;
   
   c=malloc(3*sizeof(char));
@@ -220,8 +240,7 @@ void coord_to_indexes(const gchar *coord, int *col, int *lig)
 }
 
 /* Fonction transforme coordonnees du damier graphique en indexes pour matrice du damier */
-void indexes_to_coord(int col, int lig, char *coord)
-{
+void indexes_to_coord(int col, int lig, char *coord) {
   char c;
 
   if(col==0)
@@ -261,8 +280,7 @@ void indexes_to_coord(int col, int lig, char *coord)
 }
 
 /* Fonction permettant afficher image pion dans case du damier (indiqué par sa colonne et sa ligne) */
-void affiche_pion(int col, int lig)
-{
+void affiche_pion(int col, int lig) {
     char * coord;
     
     coord=malloc(3*sizeof(char));
@@ -272,8 +290,7 @@ void affiche_pion(int col, int lig)
 }
 
 /* Fonction permettant afficher image cavalier noir dans case du damier (indiqué par sa colonne et sa ligne) */
-void affiche_cav_noir(int col, int lig)
-{
+void affiche_cav_noir(int col, int lig) {
     char * coord;
     
     coord=malloc(3*sizeof(char));
@@ -283,8 +300,7 @@ void affiche_cav_noir(int col, int lig)
 }
 
 /* Fonction permettant afficher image cavalier blanc dans case du damier (indiqué par sa colonne et sa ligne) */
-void affiche_cav_blanc(int col, int lig)
-{
+void affiche_cav_blanc(int col, int lig) {
     char * coord;
     
     coord=malloc(3*sizeof(char));
@@ -294,8 +310,7 @@ void affiche_cav_blanc(int col, int lig)
 }
 
 /* Fonction appelee lors du clique sur une case du damier */
-static void coup_joueur(GtkWidget *p_case)
-{
+static void coup_joueur(GtkWidget *p_case) {
   int col, lig, type_msg, nb_piece, score;
   char buf[MAXDATASIZE];
   
@@ -339,7 +354,7 @@ static void coup_joueur(GtkWidget *p_case)
     damier[localisation.colonne][localisation.ligne] = 3;
 
     // Gele le damier
-    gele_damier();
+    //gele_damier();
 
     // Envoyer à l'adversaire les anciennes et les nouvelles coordonnées du joueur actuel
     bzero(buf, MAXDATASIZE);
@@ -358,22 +373,11 @@ static void coup_joueur(GtkWidget *p_case)
     // Afficher les cases jouables par le joueur
     add_case_jouable(get_case_jouable(localisation.colonne, localisation.ligne));
 
-  }
-  
-}
-
-static void coup_adversaire(int col, int lig)
-{
-    affiche_cav_noir(col, lig);
-    printf("\ncol=%d  lig=%d\n");
-
-    // update_score();
-    degele_damier();
+  } 
 }
 
 /* Fonction retournant texte du champs adresse du serveur de l'interface graphique */
-char *lecture_addr_serveur(void)
-{
+char *lecture_addr_serveur(void) {
   GtkWidget *entry_addr_srv;
   
   entry_addr_srv = (GtkWidget *) gtk_builder_get_object(p_builder, "entry_adr");
@@ -382,8 +386,7 @@ char *lecture_addr_serveur(void)
 }
 
 /* Fonction retournant texte du champs port du serveur de l'interface graphique */
-char *lecture_port_serveur(void)
-{
+char *lecture_port_serveur(void) {
   GtkWidget *entry_port_srv;
   
   entry_port_srv = (GtkWidget *) gtk_builder_get_object(p_builder, "entry_port");
@@ -392,8 +395,7 @@ char *lecture_port_serveur(void)
 }
 
 /* Fonction retournant texte du champs login de l'interface graphique */
-char *lecture_login(void)
-{
+char *lecture_login(void) {
   GtkWidget *entry_login;
   
   entry_login = (GtkWidget *) gtk_builder_get_object(p_builder, "entry_login");
@@ -402,8 +404,7 @@ char *lecture_login(void)
 }
 
 /* Fonction retournant texte du champs adresse du cadre Joueurs de l'interface graphique */
-char *lecture_addr_adversaire(void)
-{
+char *lecture_addr_adversaire(void) {
   GtkWidget *entry_addr_j2;
   
   entry_addr_j2 = (GtkWidget *) gtk_builder_get_object(p_builder, "entry_addr_j2");
@@ -412,8 +413,7 @@ char *lecture_addr_adversaire(void)
 }
 
 /* Fonction retournant texte du champs port du cadre Joueurs de l'interface graphique */
-char *lecture_port_adversaire(void)
-{
+char *lecture_port_adversaire(void) {
   GtkWidget *entry_port_j2;
   
   entry_port_j2 = (GtkWidget *) gtk_builder_get_object(p_builder, "entry_port_j2");
@@ -422,8 +422,7 @@ char *lecture_port_adversaire(void)
 }
 
 /* Fonction affichant boite de dialogue si partie gagnee */
-void affiche_fenetre_gagne(void)
-{
+void affiche_fenetre_gagne(void) {
   GtkWidget *dialog;
     
   GtkDialogFlags flags = GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT;
@@ -435,8 +434,7 @@ void affiche_fenetre_gagne(void)
 }
 
 /* Fonction affichant boite de dialogue si partie perdue */
-void affiche_fenetre_perdu(void)
-{
+void affiche_fenetre_perdu(void) {
   GtkWidget *dialog;
     
   GtkDialogFlags flags = GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT;
@@ -448,27 +446,23 @@ void affiche_fenetre_perdu(void)
 }
 
 /* Fonction appelee lors du clique du bouton Se connecter */
-static void clique_connect_serveur(GtkWidget *b)
-{
+static void clique_connect_serveur(GtkWidget *b) {
   /***** TO DO *****/
-  
 }
 
 /* Fonction desactivant bouton demarrer partie */
-void disable_button_start(void)
-{
+void disable_button_start(void) {
   gtk_widget_set_sensitive((GtkWidget *) gtk_builder_get_object (p_builder, "button_start"), FALSE);
 }
 
 /* Fonction traitement signal bouton Demarrer partie */
-static void clique_connect_adversaire(GtkWidget *b)
-{
+static void clique_connect_adversaire(GtkWidget *b) {
   if(newsockfd==-1)
   {
     // Deactivation bouton demarrer partie
     gtk_widget_set_sensitive((GtkWidget *) gtk_builder_get_object (p_builder, "button_start"), FALSE);
     
-    // Recuperation  adresse et port adversaire au format chaines caracteres
+    // Recuperation adresse et port adversaire au format chaines caracteres
     addr_j2=lecture_addr_adversaire();
     port_j2=lecture_port_adversaire();
     
@@ -481,8 +475,7 @@ static void clique_connect_adversaire(GtkWidget *b)
 }
 
 /* Fonction desactivant les cases du damier */
-void gele_damier(void)
-{
+void gele_damier(void) {
   gtk_widget_set_sensitive((GtkWidget *) gtk_builder_get_object(p_builder, "eventboxA1"), FALSE);
   gtk_widget_set_sensitive((GtkWidget *) gtk_builder_get_object(p_builder, "eventboxB1"), FALSE);
   gtk_widget_set_sensitive((GtkWidget *) gtk_builder_get_object(p_builder, "eventboxC1"), FALSE);
@@ -550,8 +543,7 @@ void gele_damier(void)
 }
 
 /* Fonction activant les cases du damier */
-void degele_damier(void)
-{
+void degele_damier(void) {
   gtk_widget_set_sensitive((GtkWidget *) gtk_builder_get_object(p_builder, "eventboxA1"), TRUE);
   gtk_widget_set_sensitive((GtkWidget *) gtk_builder_get_object(p_builder, "eventboxB1"), TRUE);
   gtk_widget_set_sensitive((GtkWidget *) gtk_builder_get_object(p_builder, "eventboxC1"), TRUE);
@@ -619,8 +611,7 @@ void degele_damier(void)
 }
 
 /* Fonction permettant d'initialiser le plateau de jeu */
-void init_interface_jeu(void)
-{
+void init_interface_jeu(void) {
   // Initilisation du damier (A1=cavalier_noir, H8=cavalier_blanc)
   affiche_cav_blanc(7,7);
   damier[7][7]=1;
@@ -642,8 +633,7 @@ void init_interface_jeu(void)
 }
 
 /* Fonction reinitialisant la liste des joueurs sur l'interface graphique */
-void reset_liste_joueurs(void)
-{
+void reset_liste_joueurs(void) {
   GtkTextIter start, end;
   
   gtk_text_buffer_get_start_iter(GTK_TEXT_BUFFER(gtk_text_view_get_buffer(GTK_TEXT_VIEW(gtk_builder_get_object(p_builder, "textview_joueurs")))), &start);
@@ -653,8 +643,7 @@ void reset_liste_joueurs(void)
 }
 
 /* Fonction permettant d'ajouter un joueur dans la liste des joueurs sur l'interface graphique */
-void affich_joueur(char *login, char *adresse, char *port)
-{
+void affich_joueur(char *login, char *adresse, char *port) {
   const gchar *joueur;
   
   joueur=g_strconcat(login, " - ", adresse, " : ", port, "\n", NULL);
@@ -663,8 +652,7 @@ void affich_joueur(char *login, char *adresse, char *port)
 }
 
 /* Fonction permettant d'effectuer des opérations récurentes sur les descripteurs */
-void set_and_clear_fds(int fd_signal)
-{
+void set_and_clear_fds(int fd_signal) {
     FD_SET(newsockfd, &master);
     fdmax = newsockfd > fdmax ? newsockfd : fdmax;
 
@@ -676,8 +664,7 @@ void set_and_clear_fds(int fd_signal)
 }
 
 /* Fonction permettant d'initialiser une socket et de la bind */
-void init_bind_socket(int *fd_sock, const char *port)
-{
+void init_bind_socket(int *fd_sock, const char *port) {
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
@@ -728,8 +715,7 @@ void init_bind_socket(int *fd_sock, const char *port)
 }
 
 /* Fonction permettant d'initialiser une socket et de tenter une connexion dessus */
-void init_connect_socket(int *fd_sock)
-{
+void init_connect_socket(int *fd_sock) {
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -767,8 +753,7 @@ void init_connect_socket(int *fd_sock)
 }
 
 /* Fonction exécutée par le thread gérant les communications à travers la socket */
-static void * f_com_socket(void *p_arg)
-{
+static void * f_com_socket(void *p_arg) {
   int i, nbytes, old_col, old_lig, new_col, new_lig;
 
   sigset_t signal_mask;
@@ -789,16 +774,14 @@ static void * f_com_socket(void *p_arg)
   sigemptyset(&signal_mask);
   sigaddset(&signal_mask, SIGUSR1);
 
-  if (sigprocmask(SIG_BLOCK, &signal_mask, NULL) == -1)
-  {
+  if (sigprocmask(SIG_BLOCK, &signal_mask, NULL) == -1) {
       printf("[Port joueur %d] Erreur sigprocmask\n", port);
       return 0;
   }
 
   fd_signal = signalfd(-1, &signal_mask, 0);
 
-  if (fd_signal == -1)
-  {
+  if (fd_signal == -1) {
       printf("[Port joueur %d] Erreur signalfd\n", port);
       return 0;
   }
@@ -806,34 +789,25 @@ static void * f_com_socket(void *p_arg)
   /* Ajout descripteur du signal dans ensemble de descripteur utilisé avec fonction select */
   FD_SET(fd_signal, &master);
 
-  if (fd_signal > fdmax)
-  {
+  if (fd_signal > fdmax) {
       fdmax = fd_signal;
   }
   
-  while(1)
-  {
+  while(1) {
     read_fds=master;	// copie des ensembles
     
-    if(select(fdmax+1, &read_fds, &write_fds, NULL, NULL)==-1)
-    {
+    if(select(fdmax+1, &read_fds, &write_fds, NULL, NULL)==-1) {
       perror("Problème avec select");
-      
-      // reinitialiser_interface(); // a creer
       gtk_widget_set_sensitive((GtkWidget *)gtk_builder_get_object(p_builder, "button_start"), TRUE);
-      
       exit(4);
     }
     
     printf("[Port joueur %d] Entree dans boucle for\n", port);
-    for(i=0; i<=fdmax; i++)
-    {
+    for(i=0; i<=fdmax; i++) {
       printf("[Port joueur %d] newsockfd=%d, iteration %d boucle for\n", port, newsockfd, i);
 
-      if(FD_ISSET(i, &read_fds))
-      {
-        if (i == fd_signal)
-        {
+      if(FD_ISSET(i, &read_fds)) {
+        if (i == fd_signal) {
           /* Cas où on se connecte au joueur adverse */
           printf("Connexion avec l'adversaire\n");
 
@@ -850,32 +824,28 @@ static void * f_com_socket(void *p_arg)
           }
         }
 
-
-        if(i==sockfd)
-        { // Acceptation connexion adversaire
+        // Acceptation connexion adversaire
+        if(i==sockfd) { 
 	  
-          if (newsockfd == -1)
-          {
+          if (newsockfd == -1) {
               addr_size = sizeof(their_addr);
               if ((newsockfd = accept(sockfd, their_addr, (socklen_t *)&addr_size)) == -1)
               {
                   perror("Connexion refusée");
                   return NULL;
               }
-              set_and_clear_fds(fd_signal); // a faire
+              set_and_clear_fds(fd_signal);
               init_interface_jeu();
           }
 
           gtk_widget_set_sensitive((GtkWidget *)gtk_builder_get_object(p_builder, "button_start"), FALSE);
 
         }
-        else
-        { // Reception et traitement des messages du joueur adverse
-      
-          printf("\ntest zebiiiiii => %d \n", i);
-          if (i == newsockfd)
-          {
-            // clear buffer
+        // Reception et traitement des messages du joueur adverse
+        else { 
+          printf("\ntest 7 => %d \n", i);
+          if (i == newsockfd) {
+            // vider buffer
             bzero(buf, MAXDATASIZE);
             nbytes = recv(newsockfd, buf, MAXDATASIZE, 0);
 
@@ -893,7 +863,7 @@ static void * f_com_socket(void *p_arg)
             mouvement_joueur.colonne = ntohs(mouvement_joueur.colonne);
             mouvement_joueur.ligne = ntohs(mouvement_joueur.ligne);
 
-            coup_adversaire(mouvement_joueur.colonne, mouvement_joueur.ligne); // a faire
+            coup_adversaire(mouvement_joueur.colonne, mouvement_joueur.ligne);
           }
         }
       }
@@ -1204,25 +1174,28 @@ void affiche_fenetre_egalite(void) {
   gtk_widget_destroy(dialog);
 }
 
+/* Fonction appelee lorsque l'on recoit le coup de l'adversaire */
+static void coup_adversaire(int col, int lig) {
+    affiche_cav_noir(col, lig);
+    printf("\ncol=%d  lig=%d\n");
+
+    degele_damier();
+}
+
 
 
 /****************/
 /***** MAIN *****/
 /****************/
 
-int main (int argc, char ** argv)
-{
+int main(int argc, char ** argv) {
    int i, j, ret;
-
    int thread;
 
-   if(argc!=2)
-   {
-     printf("\nPrototype : ./cavalier_GUI num_port\n\n");
-     
-     exit(1);
+   if(argc!=2) {
+    printf("\nPrototype : ./cavalier_GUI num_port\n\n");
+    exit(1);
    }
-   
    
    /* Initialisation de GTK+ */
    gtk_init (& argc, & argv);
@@ -1230,13 +1203,11 @@ int main (int argc, char ** argv)
    /* Creation d'un nouveau GtkBuilder */
    p_builder = gtk_builder_new();
  
-   if (p_builder != NULL)
-   {
+   if (p_builder != NULL) {
       /* Chargement du XML dans p_builder */
       gtk_builder_add_from_file (p_builder, "UI_Glade/Cavalier.glade", & p_err);
  
-      if (p_err == NULL)
-      {
+      if (p_err == NULL) {
          /* Recuparation d'un pointeur sur la fenetre. */
          GtkWidget * p_win = (GtkWidget *) gtk_builder_get_object (p_builder, "window1");
 
@@ -1315,15 +1286,12 @@ int main (int argc, char ** argv)
          g_signal_connect_swapped(G_OBJECT(p_win), "destroy", G_CALLBACK(gtk_main_quit), NULL);
          
          
-         
          /* Recuperation numero port donne en parametre */
          port=atoi(argv[1]);
           
          /* Initialisation du damier de jeu */
-         for(i=0; i<8; i++)
-         {
-           for(j=0; j<8; j++)
-           {
+         for(i=0; i<8; i++) {
+           for(j=0; j<8; j++) {
              damier[i][j]=-1; 
            }  
          }
@@ -1349,8 +1317,7 @@ int main (int argc, char ** argv)
 
         // creation thread pour communication avec joueur adverse
         thread = pthread_create(&thr_id, NULL, f_com_socket, NULL);
-        if (thread != 0)
-        {
+        if (thread != 0) {
             fprintf(stderr, "ERREUR : Creation du thread %s\n", strerror(thread));
             exit(1);
         }
@@ -1358,14 +1325,12 @@ int main (int argc, char ** argv)
          gtk_widget_show_all(p_win);
          gtk_main();
       }
-      else
-      {
+      else {
          /* Affichage du message d'erreur de GTK+ */
          g_error ("%s", p_err->message);
          g_error_free (p_err);
       }
    }
- 
- 
+
    return EXIT_SUCCESS;
 }
