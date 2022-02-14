@@ -15,12 +15,18 @@
 #include <signal.h>
 #include <sys/signalfd.h>
 
-
 #include <gtk/gtk.h>
 
 
 #define MAXDATASIZE 256
+#define NOIR 0
+#define BLANC 1
 
+struct coup
+{
+    uint16_t col;
+    uint16_t lig;
+};
 
 /* Variables globales */
   int damier[8][8];	// tableau associe au damier , couleurs possibles 0 : pour noir, 1 : pour blanc, 3 : pour pion
@@ -243,7 +249,23 @@ static void coup_joueur(GtkWidget *p_case)
   
 
   /***** TO DO *****/
-    
+  
+  if (couleur == 1) {
+
+    // Afficher cavalier blanc dans la case cliquée
+    affiche_cav_blanc(col, lig)
+
+    // Changement de joueur
+    couleur = 0
+  }
+  else {
+
+    // Afficher cavalier noir dans la case cliquée
+    affiche_cav_noir(col, lig)
+
+    // Changement de joueur
+    couleur = 1
+  }  
 }
 
 /* Fonction retournant texte du champs adresse du serveur de l'interface graphique */
@@ -351,7 +373,14 @@ static void clique_connect_adversaire(GtkWidget *b)
     printf("[Port joueur : %d] Port j2 lu : %s\n", port, port_j2);
 
     
-    pthread_kill(thr_id, SIGUSR1); 
+    //pthread_kill(thr_id, SIGUSR1); 
+    
+    /***** TO DO *****/
+    /* Connexion au joueur adverse */
+    
+
+    
+    
   }
 }
 
@@ -499,9 +528,14 @@ void init_interface_jeu(void)
   // Initilisation du damier (A1=cavalier_noir, H8=cavalier_blanc)
   affiche_cav_blanc(7,7);
   affiche_cav_noir(0,0);
-  
-  /***** TO DO *****/
-  
+    
+  // Initialisation du plateau de chaque joueur
+  if (couleur == 0) {
+      degele_damier();
+  }
+  else {
+      gele_damier();
+  }  
 }
 
 /* Fonction reinitialisant la liste des joueurs sur l'interface graphique */
@@ -533,40 +567,37 @@ static void * f_com_socket(void *p_arg)
   char buf[MAXDATASIZE], *tmp, *p_parse;
   int len, bytes_sent, t_msg_recu;
 
-  sigset_t signal_mask;
-  int fd_signal;
-  
   uint16_t type_msg, col_j2;
   uint16_t ucol, ulig;
-  
+
+  struct coup coup;
+
   /* Association descripteur au signal SIGUSR1 */
   sigemptyset(&signal_mask);
   sigaddset(&signal_mask, SIGUSR1);
-    
-  if(sigprocmask(SIG_BLOCK, &signal_mask, NULL) == -1)
-  {
-    printf("[Pourt joueur %d] Erreur sigprocmask\n", port);
-    
-    return 0;
-  }
-    
-  fd_signal = signalfd(-1, &signal_mask, 0);
-    
-  if(fd_signal == -1)
-  {
-    printf("[port joueur %d] Erreur signalfd\n", port);
 
-    return 0;
+  if (sigprocmask(SIG_BLOCK, &signal_mask, NULL) == -1)
+  {
+      printf("[Port joueur %d] Erreur sigprocmask\n", port);
+      return 0;
+  }
+
+  fd_signal = signalfd(-1, &signal_mask, 0);
+
+  if (fd_signal == -1)
+  {
+      printf("[Port joueur %d] Erreur signalfd\n", port);
+      return 0;
   }
 
   /* Ajout descripteur du signal dans ensemble de descripteur utilisé avec fonction select */
   FD_SET(fd_signal, &master);
-  
-  if(fd_signal>fdmax)
-  {
-    fdmax=fd_signal;
-  }
 
+  if (fd_signal > fdmax)
+  {
+      fdmax = fd_signal;
+  }
+  
   
   while(1)
   {
@@ -575,6 +606,10 @@ static void * f_com_socket(void *p_arg)
     if(select(fdmax+1, &read_fds, &write_fds, NULL, NULL)==-1)
     {
       perror("Problème avec select");
+      
+      reinitialiser_interface(); // a creer
+      gtk_widget_set_sensitive((GtkWidget *)gtk_builder_get_object(p_builder, "button_start"), TRUE);
+      
       exit(4);
     }
     
@@ -585,30 +620,68 @@ static void * f_com_socket(void *p_arg)
 
       if(FD_ISSET(i, &read_fds))
       {
-        if(i==fd_signal)
+        if (i == fd_signal)
         {
-          /* Cas où de l'envoie du signal par l'interface graphique pour connexion au joueur adverse */
-          
-          
-          /***** TO DO *****/
-          
+          /* Cas où on se connecte au joueur adverse */
+          printf("Connexion avec l'adversaire\n");
+
+          if (newsockfd == -1)
+          {
+            init_connect_socket(&newsockfd);
+
+            set_and_clear_fds(fd_signal); // a faire
+
+            set_couleur_joueur(NOIR); // a faire
+            set_couleur_adversaire(BLANC); // a faire
+            init_interface_jeu(); // a completer
+          }
         }
-      
+
+
         if(i==sockfd)
         { // Acceptation connexion adversaire
 	  
 	    
-          /***** TO DO *****/
-	    
-          gtk_widget_set_sensitive((GtkWidget *) gtk_builder_get_object (p_builder, "button_start"), FALSE);
+          if (newsockfd == -1)
+          {
+              addr_size = sizeof(their_addr);
+              if ((newsockfd = accept(sockfd, their_addr, (socklen_t *)&addr_size)) == -1)
+              {
+                  perror("Connexion refusée");
+                  return NULL;
+              }
+
+              set_and_clear_fds(fd_signal); // a faire
+
+              set_couleur_joueur(BLANC); // a faire
+              set_couleur_adversaire(NOIR); // a faire
+              init_interface_jeu(); // a faire
+          }
+
+          gtk_widget_set_sensitive((GtkWidget *)gtk_builder_get_object(p_builder, "button_start"), FALSE);
+
         }
         else
         { // Reception et traitement des messages du joueur adverse
       
       
-          /***** TO DO *****/
+          if (i == newsockfd)
+          {
+            // clear buffer
+            bzero(buf, MAXDATASIZE);
+            nbytes = recv(newsockfd, buf, MAXDATASIZE, 0);
 
-	    
+            col = atoi(strtok_r(buf, " ", &saveptr));
+            lig = atoi(strtok_r(NULL, " ", &saveptr));
+
+            sscanf(col, "%hu", (unsigned short int *)&(coup.colonne));
+            sscanf(lig, "%hu", (unsigned short int *)&(coup.ligne));
+
+            coup.colonne = ntohs(coup.colonne);
+            coup.ligne = ntohs(coup.ligne);
+
+            coup_adversaire(coup.colonne, coup.ligne); // a faire
+          }
         }
       }
     }
@@ -734,14 +807,30 @@ int main (int argc, char ** argv)
            }  
          }
 
-     
-         /***** TO DO *****/
-         
-         // Initialisation socket et autres objets, et création thread pour communications avec joueur adverse
-     
+        
+        // Initialisation socket et autres objets, et création thread pour communications avec joueur adverse
+        init_bind_socket(&sockfd, argv[1]);
 
-     
-     
+        // Attend une connexion sur la socket définit dans la variable sockfd
+        listen(sockfd, 1);
+
+        // Initialise les descripteurs de fichier à 0
+        FD_ZERO(&master);
+        FD_ZERO(&read_fds);
+
+        // Définit la variable master avec la socket définit dans sockfd
+        FD_SET(sockfd, &master);
+        
+        read_fds = master;
+        fdmax = sockfd;
+
+        // creation thread pour communication avec joueur adverse
+        thread = pthread_create(&thr_id, NULL, f_com_socket, NULL);
+        if (thread != 0)
+        {
+            fprintf(stderr, "ERREUR : Creation du thread %s\n", strerror(thread));
+            exit(1);
+        }
         
          gtk_widget_show_all(p_win);
          gtk_main();
